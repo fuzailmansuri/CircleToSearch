@@ -37,6 +37,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.akslabs.circletosearch.ui.components.LiquidGlassStyle
+import com.akslabs.circletosearch.ui.components.LiquidGlassSurface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -155,11 +157,12 @@ fun QrCodeResultSheet(
         if (found.isEmpty()) notFound = true else { results = found }
     }
 
-    Surface(
+    LiquidGlassSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 6.dp, shadowElevation = 12.dp
+        style = LiquidGlassStyle.Regular,
+        interactive = false,
+        shadowElevation = 12.dp
     ) {
         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             // Header Row

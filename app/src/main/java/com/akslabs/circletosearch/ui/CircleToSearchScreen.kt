@@ -203,6 +203,9 @@ import androidx.compose.runtime.key
 import com.akslabs.circletosearch.data.PrivacySearchEngine
 import com.akslabs.circletosearch.data.SearchEngine
 import com.akslabs.circletosearch.ui.components.FriendlyMessageBubble
+import com.akslabs.circletosearch.ui.components.LiquidGlassIconButton
+import com.akslabs.circletosearch.ui.components.LiquidGlassStyle
+import com.akslabs.circletosearch.ui.components.LiquidGlassSurface
 import com.akslabs.circletosearch.ui.components.searchWithGoogleLens
 import com.akslabs.circletosearch.ui.overlay.AnimatedNeonBorder
 import com.akslabs.circletosearch.ui.overlay.FitMapping
@@ -2316,32 +2319,29 @@ fun CircleToSearchScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                    IconButton(
-                        onClick =
-                            {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                onClose()
-                            },
-                        modifier = Modifier
-                            .background(Color.Gray.copy(alpha = 0.5f), CircleShape)
-                            .size(40.dp)
+                    LiquidGlassIconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onClose()
+                        },
+                        size = 40.dp,
+                        style = LiquidGlassStyle.Clear,
                     ) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = Color.White)
                     }
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Action Button (Menu)
-                    Box(
-                        modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                            .size(40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         var showMenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            showMenu = true
-                        }) {
+                        LiquidGlassIconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                showMenu = true
+                            },
+                            size = 40.dp,
+                            style = LiquidGlassStyle.Clear,
+                        ) {
                             Icon(
                                 Icons.Default.MoreVert,
                                 contentDescription = stringResource(R.string.cd_menu),
@@ -2568,17 +2568,17 @@ fun CircleToSearchScreen(
                 ) + fadeOut(animationSpec = tween(200)),
                 modifier = Modifier.align(Alignment.BottomCenter).zIndex(2000f)
             ) {
-                // ── Outer card container ──────────────────────────────────────────
-                androidx.compose.material3.Surface(
+                // ── Outer Liquid Glass dock ───────────────────────────────────────
+                LiquidGlassSurface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 16.dp),
                     shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shadowElevation = 8.dp,
-                    tonalElevation = 4.dp
+                    style = LiquidGlassStyle.Regular,
+                    interactive = false,
+                    shadowElevation = 10.dp
                 ) {
                     Column(
                         modifier = Modifier
@@ -2586,20 +2586,21 @@ fun CircleToSearchScreen(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // ── ROW 1: Search Pill + Instant Actions (Song, Translate) ──
+                        // ── ROW 1: Search Pill + Instant Actions (Translate) ──
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             // Main Search Pill
-                            androidx.compose.material3.Surface(
+                            LiquidGlassSurface(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(60.dp),
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                tonalElevation = 2.dp
+                                style = LiquidGlassStyle.Regular,
+                                interactive = false,
+                                shadowElevation = 2.dp
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -2648,58 +2649,65 @@ fun CircleToSearchScreen(
                             // Short press: freeze CTS (chrome hides, screenshot stays) and run the module's
                             //   translator overlay on the capture; close/back returns to Circle to Search.
                             // Long press: close CTS and run the same overlay on the real screen (bubble behavior).
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                                    .combinedClickable(
-                                        onClick = {
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                            val bmp = screenshot
-                                            if (bmp == null) {
-                                                android.widget.Toast.makeText(context, context.getString(R.string.toast_translate_unavailable), android.widget.Toast.LENGTH_SHORT).show()
-                                                return@combinedClickable
-                                            }
-                                            selectionRect = null
-                                            selectedBitmap = null
-                                            isSearching = false
-                                            currentPathPoints.clear()
-                                            scope.launch { selectionAnim.snapTo(0f) }
-
-                                            val translatorService = CircleToSearchAccessibilityService.instance
-                                            if (translatorService != null) {
-                                                isTranslatorMode = true
-                                                // OCR starts now; only the overlay chrome waits for the hide delay.
-                                                val started = translatorService.translateCapturedScreen(bmp, TRANSLATE_HIDE_DELAY_MS, onClosed = {
-                                                    isTranslatorMode = false
-                                                })
-                                                if (started) return@combinedClickable
-                                                isTranslatorMode = false
-                                            }
-                                            // No accessibility service (or its bridge failed):
-                                            // show the module's translate overlay hosted in our
-                                            // own activity — same OverlayUI chrome as the a11y path.
-                                            isTranslatorMode = true
-                                            val startedTranslate = com.akslabs.circletosearch.AssistantTranslateOverlay.start(bmp, TRANSLATE_HIDE_DELAY_MS) {
-                                                isTranslatorMode = false
-                                            }
-                                            if (!startedTranslate) {
-                                                isTranslatorMode = false
-                                                android.widget.Toast.makeText(context, context.getString(R.string.toast_translate_unavailable), android.widget.Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        onLongClick = {
-                                            translateLiveScreen()
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
+                            LiquidGlassSurface(
+                                modifier = Modifier.size(60.dp),
+                                shape = CircleShape,
+                                style = LiquidGlassStyle.Prominent(MaterialTheme.colorScheme.primary),
+                                interactive = true,
+                                shadowElevation = 4.dp,
                             ) {
-                                Icon(
-                                    painterResource(id = com.akslabs.circletosearch.R.drawable.translate_indic_24px),
-                                    contentDescription = stringResource(R.string.cd_translate),
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .combinedClickable(
+                                            onClick = {
+                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                val bmp = screenshot
+                                                if (bmp == null) {
+                                                    android.widget.Toast.makeText(context, context.getString(R.string.toast_translate_unavailable), android.widget.Toast.LENGTH_SHORT).show()
+                                                    return@combinedClickable
+                                                }
+                                                selectionRect = null
+                                                selectedBitmap = null
+                                                isSearching = false
+                                                currentPathPoints.clear()
+                                                scope.launch { selectionAnim.snapTo(0f) }
+
+                                                val translatorService = CircleToSearchAccessibilityService.instance
+                                                if (translatorService != null) {
+                                                    isTranslatorMode = true
+                                                    // OCR starts now; only the overlay chrome waits for the hide delay.
+                                                    val started = translatorService.translateCapturedScreen(bmp, TRANSLATE_HIDE_DELAY_MS, onClosed = {
+                                                        isTranslatorMode = false
+                                                    })
+                                                    if (started) return@combinedClickable
+                                                    isTranslatorMode = false
+                                                }
+                                                // No accessibility service (or its bridge failed):
+                                                // show the module's translate overlay hosted in our
+                                                // own activity — same OverlayUI chrome as the a11y path.
+                                                isTranslatorMode = true
+                                                val startedTranslate = com.akslabs.circletosearch.AssistantTranslateOverlay.start(bmp, TRANSLATE_HIDE_DELAY_MS) {
+                                                    isTranslatorMode = false
+                                                }
+                                                if (!startedTranslate) {
+                                                    isTranslatorMode = false
+                                                    android.widget.Toast.makeText(context, context.getString(R.string.toast_translate_unavailable), android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            onLongClick = {
+                                                translateLiveScreen()
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painterResource(id = com.akslabs.circletosearch.R.drawable.translate_indic_24px),
+                                        contentDescription = stringResource(R.string.cd_translate),
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
 

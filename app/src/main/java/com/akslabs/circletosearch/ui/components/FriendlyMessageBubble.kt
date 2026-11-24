@@ -91,23 +91,19 @@ fun FriendlyMessageBubble(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Box(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .clip(bubbleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f))
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                        shape = bubbleShape
-                    )
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            LiquidGlassSurface(
+                modifier = Modifier.weight(1f, fill = false),
+                shape = bubbleShape,
+                style = LiquidGlassStyle.Regular,
+                interactive = false,
+                shadowElevation = 6.dp
             ) {
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                 )
             }
         }

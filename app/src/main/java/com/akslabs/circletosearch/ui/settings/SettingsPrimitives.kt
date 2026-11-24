@@ -6,6 +6,7 @@ package com.akslabs.circletosearch.ui.settings
 
 import android.content.Context
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -76,7 +77,8 @@ internal fun SettingsGroup(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
     ) {
         Column(content = content)
     }
