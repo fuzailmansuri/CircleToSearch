@@ -176,10 +176,10 @@ fun QrCodeResultSheet(
                 
                 if (results.size > 1) {
                     IconButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1 + results.size) % results.size) } }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.ChevronLeft, null, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.ChevronLeft, contentDescription = "Previous QR result", modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1) % results.size) } }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.ChevronRight, contentDescription = "Next QR result", modifier = Modifier.size(20.dp))
                     }
                 }
             }

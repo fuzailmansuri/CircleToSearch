@@ -33,35 +33,40 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.akslabs.circletosearch.ui.theme.rememberReducedMotion
 
 @Composable
 fun PulsingSearchLoader(
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 64.dp
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "PulseTransition")
-
-    // 1. Rotation for the outer ring
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Rotation"
-    )
-
-    // 2. Scale for the pulsing core
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Scale"
-    )
+    val reducedMotion = rememberReducedMotion()
+    val rotation: Float
+    val scale: Float
+    if (reducedMotion) {
+        rotation = 0f
+        scale = 1f
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "PulseTransition")
+        rotation = infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "Rotation"
+        ).value
+        scale = infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 1.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "Scale"
+        ).value
+    }
 
     // Google Colors
     val colors = listOf(

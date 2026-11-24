@@ -1,5 +1,6 @@
 package com.akslabs.circletosearch.ui.theme
 
+import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
@@ -16,7 +17,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
+
+/** Returns true when system animator duration scale is 0 (reduced motion enabled). */
+@Composable
+fun rememberReducedMotion(): Boolean {
+  val context = LocalContext.current
+  return remember(context) {
+    runCatching {
+      Settings.Global.getFloat(
+        context.contentResolver,
+        Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f,
+      ) == 0f
+    }.getOrDefault(false)
+  }
+}
 
 /**
  * Google Material 3 Expressive Motion Physics System.
@@ -101,6 +118,7 @@ fun Modifier.m3ExpressivePress(
 ): Modifier = composed {
   if (!enabled) return@composed this
 
+  val reducedMotion = rememberReducedMotion()
   val scale = remember { Animatable(1f) }
   val scope = rememberCoroutineScope()
 
@@ -111,6 +129,8 @@ fun Modifier.m3ExpressivePress(
       onClick = onClick
     )
   } else Modifier
+
+  if (reducedMotion) return@composed this.then(clickModifier)
 
   this
     .then(clickModifier)
@@ -150,6 +170,7 @@ fun Modifier.m3ExpressivePress(
 fun Modifier.m3ExpressiveTilt(
   maxTiltDegrees: Float = 8f
 ): Modifier = composed {
+  if (rememberReducedMotion()) return@composed this
   val tiltX = remember { Animatable(0f) }
   val tiltY = remember { Animatable(0f) }
   val scope = rememberCoroutineScope()

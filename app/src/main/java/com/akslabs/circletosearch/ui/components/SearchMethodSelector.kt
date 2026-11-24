@@ -101,7 +101,7 @@ fun SearchMethodSelector(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onAskEveryTimeChange(true) }
+                .clickable { onAskEveryTimeChange(!askEveryTime) }
                 .padding(horizontal = 4.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -129,7 +129,7 @@ fun SearchMethodSelector(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onVisualSearchOffChange(true) }
+                .clickable { onVisualSearchOffChange(!visualSearchOff) }
                 .padding(horizontal = 4.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

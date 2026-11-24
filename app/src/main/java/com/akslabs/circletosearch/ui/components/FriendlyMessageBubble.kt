@@ -20,12 +20,11 @@
 package com.akslabs.circletosearch.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -36,8 +35,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,13 +42,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.akslabs.circletosearch.R
+import com.akslabs.circletosearch.ui.theme.rememberReducedMotion
 
 @Composable
 fun FriendlyMessageBubble(
@@ -59,23 +56,29 @@ fun FriendlyMessageBubble(
     visible: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = rememberReducedMotion()
+    val bubbleShape = RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 24.dp,
+        bottomEnd = 24.dp,
+        bottomStart = 24.dp
+    )
     AnimatedVisibility(
         visible = visible,
-        enter = slideInHorizontally { -it } + fadeIn(), // Slide down from top
-        exit = slideOutHorizontally { -it } + fadeOut(),
+        enter = if (reducedMotion) fadeIn(tween(0)) else slideInHorizontally { -it } + fadeIn(tween(180)),
+        exit = if (reducedMotion) fadeOut(tween(0)) else slideOutHorizontally { -it } + fadeOut(tween(150)),
         modifier = modifier
     ) {
         Row(
-            verticalAlignment = Alignment.Top, // Align top so bubble points to icon head
+            verticalAlignment = Alignment.Top,
             modifier = Modifier.padding(16.dp)
         ) {
-            // App Icon (Search Icon)
             Box(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.White)
-                    .border(2.dp, MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), CircleShape),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -85,50 +88,25 @@ fun FriendlyMessageBubble(
                     modifier = Modifier.size(38.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
-            // Glass Bubble
+
             Box(
                 modifier = Modifier
-                    .weight(1f, fill = false) // Don't take full width if text is short
-                    .clip(RoundedCornerShape(
-                        topStart = 4.dp, // Pointy corner near icon (Speech Bubble effect)
-                        topEnd = 24.dp,
-                        bottomEnd = 24.dp,
-                        bottomStart = 24.dp
-                    ))
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xFFFFFFFF),
-                                Color(0xFFEDECEC)
-                            )
-                        )
-                    )
+                    .weight(1f, fill = false)
+                    .clip(bubbleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f))
                     .border(
                         width = 1.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.6f),
-                                Color.White.copy(alpha = 0.1f)
-                            ),
-                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                            end = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-                        ),
-                        shape = RoundedCornerShape(
-                            topStart = 4.dp, 
-                            topEnd = 24.dp, 
-                            bottomEnd = 24.dp, 
-                            bottomStart = 24.dp
-                        )
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        shape = bubbleShape
                     )
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium
                 )
             }

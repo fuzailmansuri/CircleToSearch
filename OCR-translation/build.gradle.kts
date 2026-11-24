@@ -79,12 +79,17 @@ fun jniLibAbiDir(abi: String) = File(jniLibsRootDir, abi)
 
 // Short, space-free cargo home + target dir: absolute host paths get baked
 // into ninja object dirs (260-char Windows limit), so both must stay short.
-val shortCargoHome = "C:/cgo"
-val shortCargoTargetDir = "C:/ct"
+val isWindowsHost = org.gradle.internal.os.OperatingSystem.current().isWindows
+val shortCargoHome = if (isWindowsHost) "C:/cgo" else (System.getenv("CARGO_HOME") ?: "${System.getProperty("user.home")}/.cargo")
+val shortCargoTargetDir = if (isWindowsHost) "C:/ct" else bindingsRootDir.resolve("target").absolutePath
 
-val ndkLlvmPrebuiltFw = "$ndkDir/toolchains/llvm/prebuilt/windows-x86_64".replace('\\', '/')
+val ndkHostTag =
+    listOf("linux-x86_64", "windows-x86_64", "darwin-arm64", "darwin-x86_64")
+        .firstOrNull { File("$ndkDir/toolchains/llvm/prebuilt/$it").exists() }
+        ?: "linux-x86_64"
+val ndkLlvmPrebuiltFw = "$ndkDir/toolchains/llvm/prebuilt/$ndkHostTag".replace('\\', '/')
 val ndkClangIncludeFw =
-    fileTree("$ndkDir/toolchains/llvm/prebuilt/windows-x86_64") {
+    fileTree(ndkLlvmPrebuiltFw) {
         include("lib/clang/*/include/stddef.h")
     }.files.firstOrNull()?.parent?.replace('\\', '/')
         ?: error("clang include dir not found under $ndkDir")
@@ -192,7 +197,10 @@ val abiToBindingsTask =
             inputs.dir(bindingsRootDir.resolve("vendor/translator-rs/crates"))
             inputs.dir(bindingsRootDir.resolve("vendor/translator-rs/src"))
             inputs.dir(bindingsRootDir.resolve("vendor/translator-rs/tests"))
-            inputs.dir(bindingsRootDir.resolve("vendor/translator-rs/data"))
+            val vendorDataDir = bindingsRootDir.resolve("vendor/translator-rs/data")
+            if (vendorDataDir.exists()) {
+                inputs.dir(vendorDataDir)
+            }
             inputs.file(bindingsRootDir.resolve("vendor/translator-rs/Cargo.toml"))
             inputs.file(bindingsRootDir.resolve("vendor/translator-rs/Cargo.lock"))
             inputs.property("cargoTarget", cargoTarget)
@@ -202,6 +210,11 @@ val abiToBindingsTask =
             inputs.property("cargoProfile", "release")
             outputs.file(File(jniLibAbiDir(abi), "libbindings.so"))
             outputs.file(File(jniLibAbiDir(abi), "libc++_shared.so"))
+            onlyIf {
+                project.hasProperty("rebuildBindings") ||
+                    !File(jniLibAbiDir(abi), "libbindings.so").exists() ||
+                    !File(jniLibAbiDir(abi), "libc++_shared.so").exists()
+            }
 
             doLast {
                 exec {

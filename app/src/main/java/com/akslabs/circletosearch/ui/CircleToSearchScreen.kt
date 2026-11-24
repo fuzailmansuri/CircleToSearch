@@ -204,6 +204,16 @@ import com.akslabs.circletosearch.data.PrivacySearchEngine
 import com.akslabs.circletosearch.data.SearchEngine
 import com.akslabs.circletosearch.ui.components.FriendlyMessageBubble
 import com.akslabs.circletosearch.ui.components.searchWithGoogleLens
+import com.akslabs.circletosearch.ui.overlay.AnimatedNeonBorder
+import com.akslabs.circletosearch.ui.overlay.FitMapping
+import com.akslabs.circletosearch.ui.overlay.OcrLanguageDialog
+import com.akslabs.circletosearch.ui.overlay.SmartEntity
+import com.akslabs.circletosearch.ui.overlay.buildSmoothPath
+import com.akslabs.circletosearch.ui.overlay.deviceCornerRadiiPx
+import com.akslabs.circletosearch.ui.overlay.extractSmartEntities
+import com.akslabs.circletosearch.ui.overlay.fitCrop
+import com.akslabs.circletosearch.ui.overlay.fitMapping
+import com.akslabs.circletosearch.ui.overlay.toActionIntent
 import com.akslabs.circletosearch.ui.theme.OverlayGradientColors
 import com.akslabs.circletosearch.utils.FriendlyMessageManager
 import com.akslabs.circletosearch.utils.ImageSearchUploader
@@ -247,209 +257,6 @@ private const val TRANSLATE_TRIGGER_DELAY_MS = 400L
 
 /** Lets the Circle to Search chrome hide before the translator overlay draws. */
 private const val TRANSLATE_HIDE_DELAY_MS = 150L
-
-/**
- * Fit (contain) mapping for a bitmap centered in a view — the app-side mirror of the
- * module's internal fitTransform, which the word/scan overlays use. Unit-agnostic: pass
- * view/image sizes in px (crop path) or dp (chip path) consistently for both.
- */
-private class FitMapping(val scale: Float, val offsetX: Float, val offsetY: Float) {
-    fun unmapX(x: Float) = (x - offsetX) / scale
-    fun unmapY(y: Float) = (y - offsetY) / scale
-}
-
-private fun fitMapping(viewW: Float, viewH: Float, imageW: Float, imageH: Float): FitMapping {
-    val scale = min(viewW / imageW, viewH / imageH)
-    return FitMapping(scale, (viewW - imageW * scale) / 2f, (viewH - imageH * scale) / 2f)
-}
-
-/**
- * Maps a screen-space rect into bitmap space for the ContentScale.Fit display, clamping to
- * the bitmap. For screen captures (bitmap size == view size) this is the identity.
- */
-private fun fitCrop(
-    rect: android.graphics.Rect,
-    t: FitMapping,
-    imageW: Int,
-    imageH: Int,
-): android.graphics.Rect =
-    android.graphics.Rect(
-        t.unmapX(rect.left.toFloat()).toInt().coerceIn(0, imageW),
-        t.unmapY(rect.top.toFloat()).toInt().coerceIn(0, imageH),
-        t.unmapX(rect.right.toFloat()).toInt().coerceIn(0, imageW),
-        t.unmapY(rect.bottom.toFloat()).toInt().coerceIn(0, imageH),
-    )
-
-/**
- * Smooths raw pointer samples into a flowing curve (Catmull-Rom → cubic bezier),
- * so the drawn circle reads as a soft neon stroke instead of a jagged polyline.
- * With fewer than 3 points it falls back to straight segments.
- */
-private fun buildSmoothPath(points: List<Offset>): Path {
-    val path = Path()
-    val n = points.size
-    if (n == 0) return path
-    if (n < 3) {
-        path.moveTo(points[0].x, points[0].y)
-        for (i in 1 until n) path.lineTo(points[i].x, points[i].y)
-        return path
-    }
-    path.moveTo(points[0].x, points[0].y)
-    for (i in 0 until n - 1) {
-        val p0 = points[if (i - 1 < 0) 0 else i - 1]
-        val p1 = points[i]
-        val p2 = points[i + 1]
-        val p3 = points[if (i + 2 >= n) n - 1 else i + 2]
-        val c1x = p1.x + (p2.x - p0.x) / 6f
-        val c1y = p1.y + (p2.y - p0.y) / 6f
-        val c2x = p2.x - (p3.x - p1.x) / 6f
-        val c2y = p2.y - (p3.y - p1.y) / 6f
-        path.cubicTo(c1x, c1y, c2x, c2y, p2.x, p2.y)
-    }
-    return path
-}
-
-/**
- * Cyclic interpolation over the Google palette for a flowing border gradient:
- * t wraps at 1.0 and the palette starts/ends on blue, so the loop is seamless.
- */
-private fun flowingGoogleColor(t: Float): Color {
-    val p = OverlayGradientColors
-    val x = (((t % 1f) + 1f) % 1f) * (p.size - 1)
-    val i = x.toInt().coerceAtMost(p.size - 2)
-    val f = x - i
-    val a = p[i]
-    val b = p[i + 1]
-    return Color(
-        red = a.red + (b.red - a.red) * f,
-        green = a.green + (b.green - a.green) * f,
-        blue = a.blue + (b.blue - a.blue) * f,
-        alpha = a.alpha + (b.alpha - a.alpha) * f
-    )
-}
-
-/**
- * Screen-edge border: the classic thin 2dp Google-gradient line over a thin
- * blurred neon glow whose colors FLOW around the border and breathe in
- * brightness. Isolated composable so the per-frame animation only
- * recomputes itself, not the whole overlay screen.
- */
-@Composable
-private fun AnimatedNeonBorder(
-    visible: Boolean,
-    shape: androidx.compose.ui.graphics.Shape,
-) {
-    androidx.compose.animation.AnimatedVisibility(
-        visible = visible,
-        enter = androidx.compose.animation.fadeIn(animationSpec = tween(700))
-    ) {
-        val transition = rememberInfiniteTransition(label = "BorderGlow")
-        // Colors travel around the border — one full loop every 7s.
-        val flowPhase by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(7000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "BorderFlow"
-        )
-        // White light-chase racing around the edge, one lap every 2.6s.
-        val chasePhase by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2600, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "BorderChase"
-        )
-        // Glow brightness breathes. Read inside graphicsLayer = draw phase
-        // only, so the pulse never triggers recomposition by itself.
-        val glowAlpha by transition.animateFloat(
-            initialValue = 0.6f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500, easing = androidx.compose.animation.core.EaseInOut),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "BorderPulse"
-        )
-        // 33 stops for smooth angular interpolation (17 banded visibly); each
-        // stop blends its flowing Google color toward white under the chase, so
-        // the light reads on BOTH the crisp line and the blurred glow.
-        val borderBrush = Brush.sweepGradient(
-            *Array(33) { i ->
-                val t = i / 32f
-                val base = flowingGoogleColor(t + flowPhase)
-                val raw = kotlin.math.abs(t - chasePhase)
-                val d = minOf(raw, 1f - raw)
-                val c = (1f - d / 0.09f).coerceIn(0f, 1f)
-                val smooth = c * c
-                t to (if (smooth <= 0.001f) base else Color(
-                    red = base.red + (1f - base.red) * smooth,
-                    green = base.green + (1f - base.green) * smooth,
-                    blue = base.blue + (1f - base.blue) * smooth,
-                    alpha = base.alpha + (1f - base.alpha) * smooth
-                ))
-            }
-        )
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Blurred thin glow (API 31+): light emitting from the border line
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            alpha = glowAlpha
-                            renderEffect = android.graphics.RenderEffect
-                                .createBlurEffect(12f, 12f, android.graphics.Shader.TileMode.CLAMP)
-                                .asComposeRenderEffect()
-                            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                        }
-                        .border(width = 3.dp, brush = borderBrush, shape = shape)
-                )
-            }
-            // Same old thin crisp line on top, flowing with the same colors
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(width = 2.dp, brush = borderBrush, shape = shape)
-            )
-        }
-    }
-}
-
-/**
- * The device's physical screen corner radii in px: upper-left, upper-right,
- * lower-right, lower-left. `Display.getRoundedCorner` (Android 12+) reports the
- * real bezel radius per corner and returns null where the screen is rectangular;
- * older OEM builds usually expose the physical radius as an `android` framework
- * dimen. Every unresolved path yields 0, so the overlay border follows the true
- * screen shape on any device.
- */
-private fun deviceCornerRadiiPx(context: android.content.Context): FloatArray {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val display = context.display
-            ?: (context as? android.app.Activity)?.windowManager?.let {
-                @Suppress("DEPRECATION")
-                it.defaultDisplay
-            }
-        if (display != null) {
-            fun radiusAt(position: Int): Float =
-                display.getRoundedCorner(position)?.radius?.toFloat() ?: 0f
-            return floatArrayOf(
-                radiusAt(android.view.RoundedCorner.POSITION_TOP_LEFT),
-                radiusAt(android.view.RoundedCorner.POSITION_TOP_RIGHT),
-                radiusAt(android.view.RoundedCorner.POSITION_BOTTOM_RIGHT),
-                radiusAt(android.view.RoundedCorner.POSITION_BOTTOM_LEFT),
-            )
-        }
-    }
-    val id = context.resources.getIdentifier("rounded_corner_radius", "dimen", "android")
-    val r = if (id != 0) context.resources.getDimension(id) else 0f
-    return floatArrayOf(r, r, r, r)
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -982,57 +789,7 @@ fun CircleToSearchScreen(
         val sourceWords = instantWords?.sourceWords ?: return@LaunchedEffect
         if (lastScanGeneration == entityScanGeneration) return@LaunchedEffect
         lastScanGeneration = entityScanGeneration
-        val entities = mutableListOf<SmartEntity>()
-
-        val urlRegex = android.util.Patterns.WEB_URL.toRegex()
-        val emailRegex = android.util.Patterns.EMAIL_ADDRESS.toRegex()
-        val phoneRegexLine = Regex("""(\+?[\d\s\-\(\).]{9,20})""")
-        val upiRegex = Regex("""[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}""")
-
-        // Group recognized words into lines; phone matches map into
-        // the line's union bounds by character ratio, like before.
-        sourceWords.groupBy { it.lineIndex }.forEach { (_, lineWords) ->
-            val lineText = lineWords.joinToString(" ") { it.text }
-            var left = Float.MAX_VALUE
-            var top = Float.MAX_VALUE
-            var right = -Float.MAX_VALUE
-            var bottom = -Float.MAX_VALUE
-            lineWords.forEach { w ->
-                left = min(left, w.bounds.cx - w.bounds.width / 2f)
-                top = min(top, w.bounds.cy - w.bounds.height / 2f)
-                right = max(right, w.bounds.cx + w.bounds.width / 2f)
-                bottom = max(bottom, w.bounds.cy + w.bounds.height / 2f)
-            }
-            phoneRegexLine.findAll(lineText).forEach { match ->
-                val phoneCandidate = match.value.trim()
-                if (phoneCandidate.count { it.isDigit() } >= 10) {
-                    val startIdx = match.range.first
-                    val endIdx = match.range.last + 1
-                    val ratioStart = startIdx.toFloat() / lineText.length.coerceAtLeast(1)
-                    val ratioEnd = endIdx.toFloat() / lineText.length.coerceAtLeast(1)
-                    val entityBounds = android.graphics.RectF(
-                        left + (ratioStart * (right - left)),
-                        top,
-                        left + (ratioEnd * (right - left)),
-                        bottom
-                    )
-                    entities.add(SmartEntity.Phone(phoneCandidate, entityBounds, context.getString(R.string.entity_type_phone)))
-                }
-            }
-        }
-        sourceWords.forEach { word ->
-            val txt = word.text.trim()
-            val wordBounds = android.graphics.RectF(
-                word.bounds.cx - word.bounds.width / 2f,
-                word.bounds.cy - word.bounds.height / 2f,
-                word.bounds.cx + word.bounds.width / 2f,
-                word.bounds.cy + word.bounds.height / 2f
-            )
-            if (emailRegex.matches(txt)) entities.add(SmartEntity.Email(txt, wordBounds, context.getString(R.string.entity_type_email)))
-            else if (upiRegex.matches(txt)) entities.add(SmartEntity.Upi(txt, wordBounds, context.getString(R.string.entity_type_upi)))
-            else if (urlRegex.matches(txt)) entities.add(SmartEntity.Url(txt, wordBounds, context.getString(R.string.entity_type_link)))
-        }
-        detectedEntities = entities
+        detectedEntities = extractSmartEntities(sourceWords, context)
     }
 
     // Circle-draw gesture handlers, shared by the drag-detector wrapper above the drawing
@@ -3064,56 +2821,7 @@ fun CircleToSearchScreen(
                                             }
                                             return@launch
                                         }
-                                        val entities = mutableListOf<SmartEntity>()
-
-                                        val urlRegex = android.util.Patterns.WEB_URL.toRegex()
-                                        val emailRegex = android.util.Patterns.EMAIL_ADDRESS.toRegex()
-                                        val phoneRegexLine = Regex("""(\+?[\d\s\-\(\).]{9,20})""")
-                                        val upiRegex = Regex("""[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}""")
-
-                                        // Group recognized words into lines; phone matches map into
-                                        // the line's union bounds by character ratio, like before.
-                                        sourceWords.groupBy { it.lineIndex }.forEach { (_, lineWords) ->
-                                            val lineText = lineWords.joinToString(" ") { it.text }
-                                            var left = Float.MAX_VALUE
-                                            var top = Float.MAX_VALUE
-                                            var right = -Float.MAX_VALUE
-                                            var bottom = -Float.MAX_VALUE
-                                            lineWords.forEach { w ->
-                                                left = min(left, w.bounds.cx - w.bounds.width / 2f)
-                                                top = min(top, w.bounds.cy - w.bounds.height / 2f)
-                                                right = max(right, w.bounds.cx + w.bounds.width / 2f)
-                                                bottom = max(bottom, w.bounds.cy + w.bounds.height / 2f)
-                                            }
-                                            phoneRegexLine.findAll(lineText).forEach { match ->
-                                                val phoneCandidate = match.value.trim()
-                                                if (phoneCandidate.count { it.isDigit() } >= 10) {
-                                                    val startIdx = match.range.first
-                                                    val endIdx = match.range.last + 1
-                                                    val ratioStart = startIdx.toFloat() / lineText.length.coerceAtLeast(1)
-                                                    val ratioEnd = endIdx.toFloat() / lineText.length.coerceAtLeast(1)
-                                                    val entityBounds = android.graphics.RectF(
-                                                        left + (ratioStart * (right - left)),
-                                                        top,
-                                                        left + (ratioEnd * (right - left)),
-                                                        bottom
-                                                    )
-                                                    entities.add(SmartEntity.Phone(phoneCandidate, entityBounds, context.getString(R.string.entity_type_phone)))
-                                                }
-                                            }
-                                        }
-                                        sourceWords.forEach { word ->
-                                            val txt = word.text.trim()
-                                            val wordBounds = android.graphics.RectF(
-                                                word.bounds.cx - word.bounds.width / 2f,
-                                                word.bounds.cy - word.bounds.height / 2f,
-                                                word.bounds.cx + word.bounds.width / 2f,
-                                                word.bounds.cy + word.bounds.height / 2f
-                                            )
-                                            if (emailRegex.matches(txt)) entities.add(SmartEntity.Email(txt, wordBounds, context.getString(R.string.entity_type_email)))
-                                            else if (upiRegex.matches(txt)) entities.add(SmartEntity.Upi(txt, wordBounds, context.getString(R.string.entity_type_upi)))
-                                            else if (urlRegex.matches(txt)) entities.add(SmartEntity.Url(txt, wordBounds, context.getString(R.string.entity_type_link)))
-                                        }
+                                        val entities = extractSmartEntities(sourceWords, context)
                                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                             isExtractingEntities = false
                                             // Discard results if the canvas image changed mid-scan.
@@ -3457,12 +3165,7 @@ fun CircleToSearchScreen(
                                     val clip = android.content.ClipData.newPlainText(entity.typeName, entity.text)
                                     clipboard.setPrimaryClip(clip)
 
-                                    val intent = when(entity) {
-                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(if (!entity.text.startsWith("http")) "http://${entity.text}" else entity.text))
-                                        is SmartEntity.Email -> android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.text}"))
-                                        is SmartEntity.Phone -> android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.text}"))
-                                        is SmartEntity.Upi -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("upi://pay?pa=${entity.text}"))
-                                    }
+                                    val intent = entity.toActionIntent()
                                     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)
                                     detectedEntities = emptyList()
@@ -3480,12 +3183,7 @@ fun CircleToSearchScreen(
                             .offset(x = chipX.dp + 28.dp, y = chipY.dp - 12.dp)
                             .clickable {
                                 try {
-                                    val intent = when(entity) {
-                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(if (!entity.text.startsWith("http")) "http://${entity.text}" else entity.text))
-                                        is SmartEntity.Email -> android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.text}"))
-                                        is SmartEntity.Phone -> android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.text}"))
-                                        is SmartEntity.Upi -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("upi://pay?pa=${entity.text}"))
-                                    }
+                                    val intent = entity.toActionIntent()
                                     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)
                                     detectedEntities = emptyList()
@@ -3911,257 +3609,6 @@ fun CircleToSearchScreen(
     }
 }
 }
-}
-
-/**
- * Checklist of the app's bundled OCR languages. `Auto-detect (all languages)`
- * is checked exactly when the whitelist is empty — picking languages unchecks
- * it, picking it clears everything, and every state persists via
- * [OcrLanguagePreferences].
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun OcrLanguageDialog(
-    onDismiss: () -> Unit,
-    onCheckedChange: (Set<String>) -> Unit,
-) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val checked = remember { mutableStateListOf(*OcrLanguagePreferences.getChecked(context).toTypedArray()) }
-    var query by remember { mutableStateOf("") }
-    val isAuto = checked.isEmpty()
-
-    // Bundled/installed OCR languages only: a checked language whose recognizer
-    // pack is missing on this device would be unusable, so it never appears.
-    val languages = remember {
-        runCatching {
-            (context.applicationContext as? TranslatorApplication)
-                ?.languageCatalog
-                ?.languageRows
-                .orEmpty()
-                .filter { it.availability.ocrFiles }
-                .map { it.language }
-                .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.localizedName() })
-        }.getOrDefault(emptyList())
-    }
-    val filtered = remember(languages, query) {
-        if (query.isBlank()) {
-            languages
-        } else {
-            languages.filter {
-                it.localizedName().contains(query, ignoreCase = true) ||
-                    it.code.contains(query, ignoreCase = true)
-            }
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        // Escape the ~280dp platform default so the picker can use real width.
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        val dialogView = LocalView.current
-        SideEffect {
-            val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
-            if (dialogWindow != null) {
-                dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                dialogWindow.attributes = dialogWindow.attributes.apply { dimAmount = 0.32f }
-            }
-        }
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            modifier = Modifier
-                .padding(horizontal = 24.dp, vertical = 32.dp)
-                .widthIn(max = 560.dp)
-                .fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(id = com.akslabs.circletosearch.R.drawable.ocr),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Spacer(modifier = Modifier.size(12.dp))
-                    Text(
-                        text = stringResource(R.string.ocr_lang_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.ocr_lang_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text(stringResource(R.string.ocr_lang_search)) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = null)
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                )
-
-                // Auto-detect: checked exactly when no language is checked.
-                val selectAuto: () -> Unit = {
-                    checked.clear()
-                    onCheckedChange(emptySet())
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = selectAuto)
-                        .padding(vertical = 6.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.ocr_lang_auto),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Text(
-                            text = stringResource(R.string.ocr_lang_auto_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                    Checkbox(
-                        checked = isAuto,
-                        onCheckedChange = { selectAuto() },
-                    )
-                }
-
-                Text(
-                    text = stringResource(R.string.ocr_lang_section),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.5.sp,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                )
-
-                // Checked languages sort to the top of the list.
-                val displayed = filtered.sortedWith(
-                    compareBy { if (checked.contains(it.code)) 0 else 1 },
-                )
-                if (filtered.isEmpty()) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(32.dp),
-                        )
-                        Spacer(modifier = Modifier.size(12.dp))
-                        Text(
-                            text = stringResource(R.string.ocr_lang_no_results, query),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .heightIn(max = minOf(displayed.size * 48 + 8, 200).dp),
-                    ) {
-                        items(displayed, key = { it.code }) { language ->
-                            val isChecked = language.code in checked
-                            val toggle: () -> Unit = {
-                                if (isChecked) checked.remove(language.code)
-                                else checked.add(language.code)
-                                onCheckedChange(checked.toSet())
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable(onClick = toggle)
-                                    .padding(vertical = 6.dp)
-                                    .animateItem(),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = language.localizedName(),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = language.code.uppercase(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                                Checkbox(
-                                    checked = isChecked,
-                                    onCheckedChange = { toggle() },
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Footer: Reset (only when restricted) + standard Done button.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                ) {
-                    if (isAuto) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    } else {
-                        TextButton(onClick = selectAuto) {
-                            Text(stringResource(R.string.ocr_lang_reset))
-                        }
-                    }
-                    Button(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(
-                            text = stringResource(R.string.ocr_lang_done),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --- Phase 44: Smart Entity Extractor Models ---
-sealed class SmartEntity(val text: String, val bounds: android.graphics.RectF, val typeName: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val sourceColor: Color) {
-    class Url(text: String, bounds: android.graphics.RectF, typeName: String) : SmartEntity(text, bounds, typeName, Icons.Default.Link, Color(0xFF1A73E8))
-    class Email(text: String, bounds: android.graphics.RectF, typeName: String) : SmartEntity(text, bounds, typeName, Icons.Default.Email, Color(0xFF1A73E8))
-    class Phone(text: String, bounds: android.graphics.RectF, typeName: String) : SmartEntity(text, bounds, typeName, Icons.Default.Phone, Color(0xFF43A047))
-    class Upi(text: String, bounds: android.graphics.RectF, typeName: String) : SmartEntity(text, bounds, typeName, Icons.Default.Person, Color(0xFF8E24AA))
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
